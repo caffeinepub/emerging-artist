@@ -106,18 +106,6 @@
     box-shadow: 0 0 30px rgba(6, 182, 212, 0.6), 0 0 60px rgba(37, 99, 235, 0.3);
     transform: translateY(-2px);
   }
-  /* UPI button — warm orange/amber (Indian UPI palette) */
-  .btn-upi {
-    background: linear-gradient(135deg, #f59e0b, #ea580c);
-    box-shadow: 0 0 16px rgba(245, 158, 11, 0.3);
-    transition: box-shadow 0.3s ease, transform 0.2s ease;
-    text-decoration: none;
-  }
-  .btn-upi:hover {
-    box-shadow: 0 0 28px rgba(245, 158, 11, 0.55), 0 0 50px
-      rgba(234, 88, 12, 0.25);
-    transform: translateY(-2px);
-  }
   /* Card/Stripe button — purple */
   .btn-card {
     background: linear-gradient(135deg, #7c3aed, #4f46e5);
@@ -291,27 +279,6 @@
     height: 36px;
     filter: invert(1) hue-rotate(180deg) brightness(0.9);
     border-radius: 8px;
-  }
-  .wa-float {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    z-index: 999;
-    width: 56px;
-    height: 56px;
-    background: #25d366;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 4px 20px rgba(37, 211, 102, 0.5);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-    cursor: pointer;
-    text-decoration: none;
-  }
-  .wa-float:hover {
-    transform: scale(1.1);
-    box-shadow: 0 4px 30px rgba(37, 211, 102, 0.7);
   }
   .nav-link {
     color: #94a3b8;

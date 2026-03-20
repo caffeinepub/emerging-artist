@@ -122,6 +122,7 @@ export interface backendInterface {
     getAllInquiries(): Promise<Array<Inquiry>>;
     removeProduct(id: string): Promise<void>;
     submitInquiry(inquiryDTO: InquiryDTO): Promise<void>;
+    _initializeAccessControlWithSecret(secret: string): Promise<void>;
 }
 import type { Inquiry as _Inquiry, InquiryDTO as _InquiryDTO, Service as _Service, Time as _Time } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
@@ -180,6 +181,11 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.submitInquiry(to_candid_InquiryDTO_n6(this._uploadFile, this._downloadFile, arg0));
             return result;
+        }
+    }
+    async _initializeAccessControlWithSecret(secret: string): Promise<void> {
+        if ((this.actor as any)._initializeAccessControlWithSecret) {
+            await (this.actor as any)._initializeAccessControlWithSecret(secret);
         }
     }
 }

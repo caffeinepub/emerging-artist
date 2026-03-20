@@ -36,6 +36,7 @@ export enum Service {
     videoDirection = "videoDirection"
 }
 export interface backendInterface {
+    _initializeAccessControlWithSecret(secret: string): Promise<void>;
     addProduct(product: ProductDTO): Promise<void>;
     getAllInquiries(): Promise<Array<Inquiry>>;
     removeProduct(id: string): Promise<void>;

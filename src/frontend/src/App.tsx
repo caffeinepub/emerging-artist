@@ -17,6 +17,13 @@ interface Product {
   tag: string;
 }
 
+interface CartItem {
+  id: string;
+  title: string;
+  price: string;
+  gumroadUrl: string;
+}
+
 interface TeamMember {
   initials: string;
   name: string;
@@ -33,6 +40,7 @@ interface BookingEntry {
   timeline: string;
   status: "pending" | "in_progress" | "done";
   submittedAt: string;
+  clientEmail?: string;
 }
 
 // ─── LocalStorage helpers ─────────────────────────────────────────────────────
@@ -46,6 +54,7 @@ function loadBookings(): BookingEntry[] {
 
 function saveBooking(
   entry: Omit<BookingEntry, "id" | "status" | "submittedAt">,
+  clientEmail?: string,
 ) {
   const bookings = loadBookings();
   const newEntry: BookingEntry = {
@@ -53,6 +62,7 @@ function saveBooking(
     id: Date.now().toString(),
     status: "pending",
     submittedAt: new Date().toISOString(),
+    ...(clientEmail ? { clientEmail } : {}),
   };
   bookings.push(newEntry);
   localStorage.setItem("ea_bookings", JSON.stringify(bookings));
@@ -63,6 +73,52 @@ function updateBookingStatus(id: string, status: BookingEntry["status"]) {
     b.id === id ? { ...b, status } : b,
   );
   localStorage.setItem("ea_bookings", JSON.stringify(bookings));
+}
+
+// ─── Client Auth Types & Helpers ─────────────────────────────────────────────
+interface ClientUser {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+}
+
+function hashPassword(pw: string): string {
+  return btoa(unescape(encodeURIComponent(pw)));
+}
+
+function loadClientUsers(): ClientUser[] {
+  try {
+    return JSON.parse(localStorage.getItem("ea_client_users") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveClientUser(user: ClientUser): void {
+  const users = loadClientUsers();
+  const idx = users.findIndex((u) => u.id === user.id);
+  if (idx >= 0) users[idx] = user;
+  else users.push(user);
+  localStorage.setItem("ea_client_users", JSON.stringify(users));
+}
+
+function getCurrentUser(): ClientUser | null {
+  try {
+    const raw = localStorage.getItem("ea_current_user");
+    return raw ? (JSON.parse(raw) as ClientUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistCurrentUser(user: ClientUser | null): void {
+  if (user) localStorage.setItem("ea_current_user", JSON.stringify(user));
+  else localStorage.removeItem("ea_current_user");
+}
+
+function logoutUser(): void {
+  localStorage.removeItem("ea_current_user");
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -173,13 +229,6 @@ const TEAM: TeamMember[] = [
 ];
 
 const WA_LINK = "https://wa.me/919341240723";
-const UPI_ID = "95257593";
-
-// Build UPI deep link
-function _buildUpiLink(price: string): string {
-  const amount = price.replace(/[₹,]/g, "").trim();
-  return `upi://pay?pa=${UPI_ID}&pn=Emerging%20Artist&am=${amount}&cu=INR`;
-}
 
 // ─── WhatsApp Icon ────────────────────────────────────────────────────────────
 function WaIcon({ size = 18 }: { size?: number }) {
@@ -246,8 +295,19 @@ function useRipple() {
 }
 
 // ─── Nav ─────────────────────────────────────────────────────────────────────
-function Nav() {
+function Nav({
+  currentUser,
+  onLoginClick,
+  onDashboardClick,
+  onLogout,
+}: {
+  currentUser: ClientUser | null;
+  onLoginClick: () => void;
+  onDashboardClick: () => void;
+  onLogout: () => void;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const createRipple = useRipple();
 
   const scrollTo = (id: string) => {
@@ -300,6 +360,100 @@ function Nav() {
         </ul>
 
         <div className="flex items-center gap-3">
+          {currentUser ? (
+            <div className="hidden md:flex items-center gap-2 relative">
+              <button
+                type="button"
+                data-ocid="nav.dashboard.link"
+                onClick={onDashboardClick}
+                className="nav-link bg-transparent border-none cursor-pointer text-sm"
+                style={{ color: "#06B6D4" }}
+              >
+                My Dashboard
+              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  data-ocid="nav.user.toggle"
+                  onClick={() => setUserMenuOpen((v) => !v)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold"
+                  style={{
+                    background: "rgba(37,99,235,0.15)",
+                    border: "1px solid rgba(37,99,235,0.35)",
+                    color: "#EAF2FF",
+                  }}
+                >
+                  👤 Hi, {currentUser.name.split(" ")[0]}
+                </button>
+                {userMenuOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 8px)",
+                      right: 0,
+                      background: "#1E293B",
+                      border: "1px solid #1F2E45",
+                      borderRadius: "12px",
+                      padding: "8px",
+                      minWidth: "160px",
+                      zIndex: 200,
+                      boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      data-ocid="nav.logout.button"
+                      onClick={() => {
+                        onLogout();
+                        setUserMenuOpen(false);
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "10px 14px",
+                        background: "transparent",
+                        border: "none",
+                        color: "#F87171",
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        borderRadius: "8px",
+                      }}
+                    >
+                      🚪 Log Out
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="hidden md:flex items-center gap-2">
+              <button
+                type="button"
+                data-ocid="nav.login.button"
+                onClick={onLoginClick}
+                className="px-4 py-2 rounded-full text-sm font-semibold"
+                style={{
+                  background: "transparent",
+                  border: "1.5px solid rgba(6,182,212,0.4)",
+                  color: "#06B6D4",
+                }}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                data-ocid="nav.signup.button"
+                onClick={(e) => {
+                  createRipple(e);
+                  onLoginClick();
+                }}
+                className="px-4 py-2 rounded-full text-white text-sm font-semibold btn-cyan"
+              >
+                Sign Up
+              </button>
+            </div>
+          )}
           <a
             href={WA_LINK}
             target="_blank"
@@ -371,6 +525,74 @@ function Nav() {
           >
             Contact Us
           </a>
+          <div className="mt-3 flex gap-2">
+            {currentUser ? (
+              <>
+                <button
+                  type="button"
+                  data-ocid="nav.mobile.dashboard.link"
+                  onClick={() => {
+                    onDashboardClick();
+                    setMenuOpen(false);
+                  }}
+                  className="flex-1 py-2 rounded-full text-sm font-semibold text-center"
+                  style={{
+                    background: "rgba(37,99,235,0.15)",
+                    border: "1px solid rgba(37,99,235,0.35)",
+                    color: "#06B6D4",
+                  }}
+                >
+                  My Dashboard
+                </button>
+                <button
+                  type="button"
+                  data-ocid="nav.mobile.logout.button"
+                  onClick={() => {
+                    onLogout();
+                    setMenuOpen(false);
+                  }}
+                  className="flex-1 py-2 rounded-full text-sm font-semibold"
+                  style={{
+                    background: "rgba(239,68,68,0.12)",
+                    border: "1px solid rgba(239,68,68,0.25)",
+                    color: "#F87171",
+                  }}
+                >
+                  Log Out
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  data-ocid="nav.mobile.login.button"
+                  onClick={() => {
+                    onLoginClick();
+                    setMenuOpen(false);
+                  }}
+                  className="flex-1 py-2 rounded-full text-sm font-semibold"
+                  style={{
+                    background: "transparent",
+                    border: "1.5px solid rgba(6,182,212,0.4)",
+                    color: "#06B6D4",
+                  }}
+                >
+                  Login
+                </button>
+                <button
+                  type="button"
+                  data-ocid="nav.mobile.signup.button"
+                  onClick={() => {
+                    onLoginClick();
+                    setMenuOpen(false);
+                  }}
+                  className="flex-1 py-2 rounded-full text-white text-sm font-semibold btn-cyan"
+                >
+                  Sign Up
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </header>
@@ -400,9 +622,9 @@ function Hero() {
           className="font-display font-black mb-5 leading-tight animate-fade-in-up-delay-1"
           style={{ fontSize: "clamp(38px,7vw,72px)" }}
         >
-          <span className="gradient-text-cyan">Create.</span>{" "}
-          <span style={{ color: "#EAF2FF" }}>Collaborate.</span>{" "}
-          <span className="gradient-text-cyan">Release.</span>
+          <span className="gradient-text-cyan">Create</span>{" "}
+          <span style={{ color: "#EAF2FF" }}>Collaborate</span>{" "}
+          <span className="gradient-text-cyan">Release</span>
         </h1>
         <p
           className="section-sub max-w-xl mx-auto mb-10 animate-fade-in-up-delay-2"
@@ -420,7 +642,7 @@ function Hero() {
             onClick={(e) => {
               createRipple(e);
               document
-                .getElementById("project")
+                .getElementById("booking")
                 ?.scrollIntoView({ behavior: "smooth" });
             }}
           >
@@ -472,11 +694,11 @@ function Services() {
   return (
     <section
       id="services"
-      className="py-24 px-5"
+      className="py-12 px-5"
       style={{ background: "linear-gradient(180deg,#020617 0%,#0F172A 100%)" }}
     >
       <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-14">
+        <div className="text-center mb-8">
           <span
             className="inline-block px-4 py-1.5 rounded-full text-xs font-semibold mb-4"
             style={{
@@ -493,15 +715,15 @@ function Services() {
             under one roof.
           </p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {SERVICES.map((svc, i) => (
             <div
               key={svc.title}
               data-ocid={`services.item.${i + 1}`}
-              className="card-dark rounded-2xl p-7"
+              className="card-dark rounded-2xl p-4"
             >
               <div
-                className="w-14 h-14 rounded-xl flex items-center justify-center text-2xl mb-5"
+                className="w-10 h-10 rounded-lg flex items-center justify-center text-lg mb-3"
                 style={{
                   background: "rgba(6,182,212,0.12)",
                   border: "1px solid rgba(6,182,212,0.2)",
@@ -530,7 +752,260 @@ function Services() {
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
-function Store() {
+function StoreProductCard({
+  product,
+  index,
+  cartItems,
+  onAddToCart,
+}: {
+  product: {
+    id: string;
+    title: string;
+    price: string;
+    gumroadUrl: string;
+    tag: string;
+    audioSrc: string;
+  };
+  index: number;
+  cartItems: CartItem[];
+  onAddToCart: (item: CartItem) => void;
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const inCart = cartItems.some((c) => c.id === product.id);
+
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+      setIsPlaying(false);
+    } else {
+      audio.play().catch(() => {});
+      setIsPlaying(true);
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    const audio = audioRef.current;
+    if (!audio || !audio.duration) return;
+    setProgress((audio.currentTime / audio.duration) * 100);
+  };
+
+  const handleEnded = () => {
+    setIsPlaying(false);
+    setProgress(0);
+  };
+
+  return (
+    <div
+      data-ocid={`store.item.${index + 1}`}
+      className="card-dark rounded-2xl p-4 flex flex-col gap-3"
+    >
+      {/* hidden audio element */}
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio
+        ref={audioRef}
+        src={product.audioSrc}
+        onTimeUpdate={handleTimeUpdate}
+        onEnded={handleEnded}
+      >
+        <track kind="captions" />
+      </audio>
+
+      {/* tag + price */}
+      <div className="flex items-center justify-between">
+        <span
+          className="text-xs font-semibold px-3 py-1 rounded-full"
+          style={{
+            background: "rgba(6,182,212,0.12)",
+            color: "#06B6D4",
+            border: "1px solid rgba(6,182,212,0.2)",
+          }}
+        >
+          {product.tag}
+        </span>
+        <span className="text-lg font-bold" style={{ color: "#60A5FA" }}>
+          {product.price}
+        </span>
+      </div>
+
+      {/* waveform / play area */}
+      <div
+        className="w-full rounded-xl flex flex-col items-center justify-center gap-3 py-2"
+        style={{
+          background: "rgba(37,99,235,0.08)",
+          border: "1px solid rgba(37,99,235,0.15)",
+        }}
+      >
+        <button
+          type="button"
+          onClick={togglePlay}
+          aria-label={isPlaying ? "Pause preview" : "Play preview"}
+          className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200"
+          style={{
+            background: isPlaying
+              ? "rgba(6,182,212,0.2)"
+              : "rgba(37,99,235,0.3)",
+            border: `2px solid ${isPlaying ? "#06B6D4" : "#2563EB"}`,
+            boxShadow: isPlaying ? "0 0 14px rgba(6,182,212,0.4)" : "none",
+          }}
+        >
+          {isPlaying ? (
+            /* pause icon */
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-label="Pause"
+              role="img"
+              style={{ color: "#06B6D4" }}
+            >
+              <title>Pause</title>
+              <rect x="5" y="4" width="4" height="16" rx="1" />
+              <rect x="15" y="4" width="4" height="16" rx="1" />
+            </svg>
+          ) : (
+            /* play icon */
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-label="Play"
+              role="img"
+              style={{ color: "#60A5FA", marginLeft: "2px" }}
+            >
+              <title>Play</title>
+              <polygon points="5,3 19,12 5,21" />
+            </svg>
+          )}
+        </button>
+
+        {/* progress bar */}
+        <div
+          className="w-full px-3"
+          style={{
+            height: "4px",
+            background: "rgba(255,255,255,0.08)",
+            borderRadius: "2px",
+          }}
+        >
+          <div
+            style={{
+              width: `${progress}%`,
+              height: "100%",
+              borderRadius: "2px",
+              background: isPlaying
+                ? "linear-gradient(90deg,#2563EB,#06B6D4)"
+                : "rgba(96,165,250,0.4)",
+              transition: "width 0.3s linear",
+            }}
+          />
+        </div>
+
+        <span className="text-xs" style={{ color: "#64748B" }}>
+          {isPlaying ? "Playing preview…" : "Tap to preview"}
+        </span>
+      </div>
+
+      <h3
+        className="font-display font-semibold text-base"
+        style={{ color: "#EAF2FF" }}
+      >
+        {product.title}
+      </h3>
+
+      <div className="flex flex-col gap-2 mt-auto">
+        <a
+          href={product.gumroadUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-ocid={`store.primary_button.${index + 1}`}
+          className="btn-cyan text-center text-sm py-2.5 rounded-xl font-semibold text-white"
+        >
+          Buy Now
+        </a>
+        <button
+          type="button"
+          data-ocid={`store.add_cart.button.${index + 1}`}
+          onClick={() =>
+            onAddToCart({
+              id: product.id,
+              title: product.title,
+              price: product.price,
+              gumroadUrl: product.gumroadUrl,
+            })
+          }
+          disabled={inCart}
+          style={{
+            background: inCart
+              ? "rgba(100,116,139,0.3)"
+              : "linear-gradient(135deg,#1d4ed8,#0284c7)",
+            border: inCart
+              ? "1px solid #475569"
+              : "1px solid rgba(37,99,235,0.4)",
+            color: inCart ? "#64748B" : "#fff",
+            borderRadius: "12px",
+            padding: "10px",
+            fontSize: "14px",
+            fontWeight: 600,
+            cursor: inCart ? "not-allowed" : "pointer",
+            transition: "all 0.2s",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+          }}
+        >
+          {inCart ? (
+            <>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                aria-hidden="true"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Added to Cart
+            </>
+          ) : (
+            <>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path d="M6 2 3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <path d="M16 10a4 4 0 01-8 0" />
+              </svg>
+              Add to Cart
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Store({
+  cartItems,
+  onAddToCart,
+}: {
+  cartItems: CartItem[];
+  onAddToCart: (item: CartItem) => void;
+}) {
   const products = [
     {
       id: "dark-trap",
@@ -538,6 +1013,7 @@ function Store() {
       price: "₹499",
       gumroadUrl: "https://gumroad.com/l/dark-trap-beat",
       tag: "Beat",
+      audioSrc: "", // replace with real audio URL e.g. "/audio/dark-trap-preview.mp3"
     },
     {
       id: "lofi-chill",
@@ -545,6 +1021,7 @@ function Store() {
       price: "₹399",
       gumroadUrl: "https://gumroad.com/l/lofi-chill-beat",
       tag: "Beat",
+      audioSrc: "",
     },
     {
       id: "drill-sample",
@@ -552,6 +1029,7 @@ function Store() {
       price: "₹699",
       gumroadUrl: "https://gumroad.com/l/drill-sample-pack",
       tag: "Sample Pack",
+      audioSrc: "",
     },
     {
       id: "vintage-soul",
@@ -559,22 +1037,18 @@ function Store() {
       price: "₹599",
       gumroadUrl: "https://gumroad.com/l/vintage-soul-pack",
       tag: "Sample Pack",
+      audioSrc: "",
     },
   ];
-
-  function buildUpiLink(price: string): string {
-    const amount = price.replace(/[₹,]/g, "").trim();
-    return `upi://pay?pa=95257593&pn=Emerging%20Artist&am=${amount}&cu=INR`;
-  }
 
   return (
     <section
       id="store"
-      className="py-24 px-5"
+      className="py-12 px-5"
       style={{ background: "linear-gradient(180deg,#0F172A 0%,#020617 100%)" }}
     >
       <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-14">
+        <div className="text-center mb-8">
           <span
             className="inline-block px-4 py-1.5 rounded-full text-xs font-semibold mb-4"
             style={{
@@ -591,69 +1065,15 @@ function Store() {
             producers. Instant download after purchase.
           </p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {products.map((p, i) => (
-            <div
+            <StoreProductCard
               key={p.id}
-              data-ocid={`store.item.${i + 1}`}
-              className="card-dark rounded-2xl p-6 flex flex-col gap-4"
-            >
-              <div className="flex items-center justify-between">
-                <span
-                  className="text-xs font-semibold px-3 py-1 rounded-full"
-                  style={{
-                    background: "rgba(6,182,212,0.12)",
-                    color: "#06B6D4",
-                    border: "1px solid rgba(6,182,212,0.2)",
-                  }}
-                >
-                  {p.tag}
-                </span>
-                <span
-                  className="text-lg font-bold"
-                  style={{ color: "#60A5FA" }}
-                >
-                  {p.price}
-                </span>
-              </div>
-              <div
-                className="w-full h-20 rounded-xl flex items-center justify-center text-3xl"
-                style={{
-                  background: "rgba(37,99,235,0.08)",
-                  border: "1px solid rgba(37,99,235,0.15)",
-                }}
-              >
-                🎵
-              </div>
-              <h3
-                className="font-display font-semibold text-base"
-                style={{ color: "#EAF2FF" }}
-              >
-                {p.title}
-              </h3>
-              <div className="flex flex-col gap-2 mt-auto">
-                <a
-                  href={p.gumroadUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-ocid={`store.primary_button.${i + 1}`}
-                  className="btn-primary text-center text-sm py-2.5 rounded-xl font-semibold"
-                >
-                  Buy Now
-                </a>
-                <a
-                  href={buildUpiLink(p.price)}
-                  data-ocid={`store.secondary_button.${i + 1}`}
-                  className="btn-outline text-center text-sm py-2 rounded-xl font-medium"
-                  style={{
-                    color: "#94A3B8",
-                    borderColor: "rgba(148,163,184,0.2)",
-                  }}
-                >
-                  Pay via UPI
-                </a>
-              </div>
-            </div>
+              product={p}
+              index={i}
+              cartItems={cartItems}
+              onAddToCart={onAddToCart}
+            />
           ))}
         </div>
       </div>
@@ -662,39 +1082,67 @@ function Store() {
 }
 
 // ─── Booking Section ──────────────────────────────────────────────────────────
-function Booking() {
+function Booking({ currentUser }: { currentUser: ClientUser | null }) {
   const [bName, setBName] = useState("");
-  const [bEmail, setBEmail] = useState("");
+  const [bEmail, setBEmail] = useState(currentUser?.email ?? "");
   const [bPhone, setBPhone] = useState("");
   const [bService, setBService] = useState<BookingServiceId | null>(null);
   const [bDesc, setBDesc] = useState("");
   const [bBudget, setBBudget] = useState("");
   const [bTimeline, setBTimeline] = useState("");
-  const [bErrors, setBErrors] = useState<{ name?: string; email?: string }>({});
+  const [bErrors, setBErrors] = useState<{
+    name?: string;
+    email?: string;
+    service?: string;
+    description?: string;
+    budget?: string;
+    timeline?: string;
+  }>({});
   const [bSubmitted, setBSubmitted] = useState(false);
+  const bookingConfirmRef = useRef<HTMLDivElement>(null);
   const createRipple = useRipple();
 
   const handleBookingSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const errs: { name?: string; email?: string } = {};
+    const errs: {
+      name?: string;
+      email?: string;
+      service?: string;
+      description?: string;
+      budget?: string;
+      timeline?: string;
+    } = {};
     if (!bName.trim()) errs.name = "Name is required.";
     if (!bEmail.trim() || !/^[^@]+@[^@]+\.[^@]+$/.test(bEmail))
       errs.email = "Valid email is required.";
+    if (!bService) errs.service = "Please select a service.";
+    if (!bDesc.trim()) errs.description = "Project description is required.";
+    if (!bBudget) errs.budget = "Please select a budget range.";
+    if (!bTimeline) errs.timeline = "Please select a timeline.";
     if (Object.keys(errs).length > 0) {
       setBErrors(errs);
       return;
     }
     setBErrors({});
-    saveBooking({
-      name: bName.trim(),
-      email: bEmail.trim(),
-      phone: bPhone.trim(),
-      service: bService ? BOOKING_SERVICE_NAMES[bService] : "Not selected",
-      description: bDesc.trim(),
-      budget: bBudget,
-      timeline: bTimeline,
-    });
+    saveBooking(
+      {
+        name: bName.trim(),
+        email: bEmail.trim(),
+        phone: bPhone.trim(),
+        service: bService ? BOOKING_SERVICE_NAMES[bService] : "Not selected",
+        description: bDesc.trim(),
+        budget: bBudget,
+        timeline: bTimeline,
+      },
+      currentUser?.email,
+    );
     setBSubmitted(true);
+    setTimeout(() => {
+      bookingConfirmRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 50);
   };
 
   return (
@@ -723,37 +1171,36 @@ function Booking() {
 
         {bSubmitted ? (
           <div
+            ref={bookingConfirmRef}
             data-ocid="booking.success_state"
             className="rounded-2xl p-10 text-center"
             style={{
-              background: "rgba(6,182,212,0.08)",
-              border: "1px solid rgba(6,182,212,0.3)",
+              background:
+                "linear-gradient(135deg, rgba(37,99,235,0.18) 0%, rgba(6,182,212,0.14) 100%)",
+              border: "1.5px solid rgba(37,99,235,0.55)",
+              boxShadow:
+                "0 0 32px rgba(37,99,235,0.35), 0 0 64px rgba(6,182,212,0.15), inset 0 0 24px rgba(37,99,235,0.08)",
             }}
           >
-            <div className="text-5xl mb-4">🎶</div>
+            <div
+              className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5"
+              style={{
+                background: "linear-gradient(135deg, #2563EB, #06B6D4)",
+                boxShadow: "0 0 24px rgba(37,99,235,0.6)",
+                fontSize: "1.75rem",
+              }}
+            >
+              ✓
+            </div>
             <h3
-              className="font-display font-bold text-xl mb-2"
+              className="font-display font-bold text-2xl mb-2"
               style={{ color: "#EAF2FF" }}
             >
-              Booking Received!
+              Booking Received
             </h3>
-            <p className="section-sub mb-6">
-              Thanks <strong style={{ color: "#06B6D4" }}>{bName}</strong>! This
-              is a free enquiry — we'll contact{" "}
-              <strong style={{ color: "#06B6D4" }}>{bEmail}</strong> within 24
-              hours to discuss your project.
+            <p style={{ color: "#94A3B8", fontSize: "0.95rem" }}>
+              We'll contact you by Whatsapp/email within 24 hours.
             </p>
-            <a
-              href={WA_LINK}
-              target="_blank"
-              rel="noopener noreferrer"
-              data-ocid="booking.whatsapp.button"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-full text-white font-semibold text-sm"
-              style={{ background: "#25D366" }}
-            >
-              <WaIcon size={18} />
-              Chat on WhatsApp
-            </a>
           </div>
         ) : (
           <div className="card-dark rounded-2xl p-8">
@@ -884,7 +1331,7 @@ function Booking() {
                     className="block text-sm font-medium mb-1.5"
                     style={{ color: "#94A3B8" }}
                   >
-                    Project Description
+                    Project Description *
                   </label>
                   <textarea
                     id="book-desc"
@@ -895,6 +1342,11 @@ function Booking() {
                     value={bDesc}
                     onChange={(e) => setBDesc(e.target.value)}
                   />
+                  {bErrors.description && (
+                    <p className="mt-1 text-xs" style={{ color: "#EF4444" }}>
+                      {bErrors.description}
+                    </p>
+                  )}
                 </div>
 
                 {/* Budget + Timeline row */}
@@ -905,7 +1357,7 @@ function Booking() {
                       className="block text-sm font-medium mb-1.5"
                       style={{ color: "#94A3B8" }}
                     >
-                      Budget Range
+                      Budget Range *
                     </label>
                     <select
                       id="book-budget"
@@ -933,6 +1385,11 @@ function Booking() {
                         ₹50,000+
                       </option>
                     </select>
+                    {bErrors.budget && (
+                      <p className="mt-1 text-xs" style={{ color: "#EF4444" }}>
+                        {bErrors.budget}
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -941,7 +1398,7 @@ function Booking() {
                       className="block text-sm font-medium mb-1.5"
                       style={{ color: "#94A3B8" }}
                     >
-                      Timeline
+                      Timeline *
                     </label>
                     <select
                       id="book-timeline"
@@ -972,6 +1429,11 @@ function Booking() {
                         Flexible
                       </option>
                     </select>
+                    {bErrors.timeline && (
+                      <p className="mt-1 text-xs" style={{ color: "#EF4444" }}>
+                        {bErrors.timeline}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1115,8 +1577,9 @@ function AdminDashboard({ onExit }: { onExit: () => void }) {
 
   const refresh = () => setBookings(loadBookings());
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload bookings whenever login state changes
   useEffect(() => {
-    if (loggedIn) setBookings(loadBookings());
+    setBookings(loadBookings());
   }, [loggedIn]);
 
   const handleLogin = (e: React.FormEvent) => {
@@ -1589,6 +2052,866 @@ function AdminDashboard({ onExit }: { onExit: () => void }) {
   );
 }
 
+// ─── Auth Modal ───────────────────────────────────────────────────────────────
+function AuthModal({
+  isOpen,
+  onClose,
+  onAuthSuccess,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onAuthSuccess: (user: ClientUser) => void;
+}) {
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const reset = () => {
+    setName("");
+    setEmail("");
+    setPassword("");
+    setError("");
+    setLoading(false);
+  };
+
+  const switchMode = (m: "login" | "signup") => {
+    setMode(m);
+    reset();
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (!email.trim() || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    setLoading(true);
+    setTimeout(() => {
+      const users = loadClientUsers();
+      if (mode === "signup") {
+        if (!name.trim()) {
+          setError("Name is required.");
+          setLoading(false);
+          return;
+        }
+        if (users.find((u) => u.email.toLowerCase() === email.toLowerCase())) {
+          setError("An account with this email already exists.");
+          setLoading(false);
+          return;
+        }
+        const newUser: ClientUser = {
+          id: Date.now().toString(),
+          name: name.trim(),
+          email: email.toLowerCase().trim(),
+          passwordHash: hashPassword(password),
+        };
+        saveClientUser(newUser);
+        persistCurrentUser(newUser);
+        onAuthSuccess(newUser);
+        onClose();
+        reset();
+      } else {
+        const user = users.find(
+          (u) => u.email.toLowerCase() === email.toLowerCase(),
+        );
+        if (!user || user.passwordHash !== hashPassword(password)) {
+          setError("Incorrect email or password.");
+          setLoading(false);
+          return;
+        }
+        persistCurrentUser(user);
+        onAuthSuccess(user);
+        onClose();
+        reset();
+      }
+    }, 400);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      data-ocid="auth.modal"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 2000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "20px",
+        background: "rgba(2,6,23,0.85)",
+        backdropFilter: "blur(8px)",
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+      aria-modal="true"
+      aria-label={mode === "login" ? "Login" : "Sign Up"}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "420px",
+          background: "#0F172A",
+          borderRadius: "20px",
+          border: "1.5px solid rgba(37,99,235,0.45)",
+          boxShadow:
+            "0 0 40px rgba(37,99,235,0.25), 0 0 80px rgba(6,182,212,0.08)",
+          padding: "36px 32px",
+          position: "relative",
+        }}
+      >
+        {/* Close button */}
+        <button
+          type="button"
+          data-ocid="auth.close_button"
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            position: "absolute",
+            top: "16px",
+            right: "16px",
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            color: "#94A3B8",
+            borderRadius: "8px",
+            width: "32px",
+            height: "32px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+
+        {/* Logo */}
+        <div style={{ textAlign: "center", marginBottom: "28px" }}>
+          <span
+            style={{
+              fontSize: "28px",
+              fontWeight: 800,
+              background: "linear-gradient(135deg,#06B6D4,#2563EB)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              display: "block",
+              marginBottom: "4px",
+            }}
+          >
+            Emerging Artist
+          </span>
+          <p style={{ color: "#64748B", fontSize: "13px" }}>
+            {mode === "login" ? "Welcome back 👋" : "Create your account 🎵"}
+          </p>
+        </div>
+
+        {/* Tab switcher */}
+        <div
+          style={{
+            display: "flex",
+            background: "#1E293B",
+            borderRadius: "12px",
+            padding: "4px",
+            marginBottom: "24px",
+          }}
+        >
+          {(["login", "signup"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              data-ocid={`auth.${m}.tab`}
+              onClick={() => switchMode(m)}
+              style={{
+                flex: 1,
+                padding: "9px",
+                borderRadius: "9px",
+                border: "none",
+                cursor: "pointer",
+                fontSize: "14px",
+                fontWeight: 600,
+                transition: "all 0.2s",
+                background:
+                  mode === m
+                    ? "linear-gradient(135deg,#2563EB,#06B6D4)"
+                    : "transparent",
+                color: mode === m ? "#fff" : "#64748B",
+              }}
+            >
+              {m === "login" ? "Login" : "Sign Up"}
+            </button>
+          ))}
+        </div>
+
+        <form onSubmit={handleSubmit} noValidate>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "14px" }}
+          >
+            {mode === "signup" && (
+              <div>
+                <label
+                  htmlFor="auth-name"
+                  style={{
+                    display: "block",
+                    color: "#94A3B8",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    marginBottom: "6px",
+                  }}
+                >
+                  Full Name *
+                </label>
+                <input
+                  id="auth-name"
+                  data-ocid="auth.name.input"
+                  type="text"
+                  placeholder="Your full name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  style={{
+                    width: "100%",
+                    background: "#1E293B",
+                    border: "1px solid #1F2E45",
+                    borderRadius: "10px",
+                    padding: "12px 14px",
+                    color: "#EAF2FF",
+                    fontSize: "14px",
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+            )}
+            <div>
+              <label
+                htmlFor="auth-email"
+                style={{
+                  display: "block",
+                  color: "#94A3B8",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  marginBottom: "6px",
+                }}
+              >
+                Email Address *
+              </label>
+              <input
+                id="auth-email"
+                data-ocid="auth.email.input"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "#1E293B",
+                  border: "1px solid #1F2E45",
+                  borderRadius: "10px",
+                  padding: "12px 14px",
+                  color: "#EAF2FF",
+                  fontSize: "14px",
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="auth-password"
+                style={{
+                  display: "block",
+                  color: "#94A3B8",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  marginBottom: "6px",
+                }}
+              >
+                Password *{" "}
+                <span style={{ color: "#475569", fontWeight: 400 }}>
+                  (min. 6 chars)
+                </span>
+              </label>
+              <input
+                id="auth-password"
+                data-ocid="auth.password.input"
+                type="password"
+                placeholder="Enter password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "#1E293B",
+                  border: "1px solid #1F2E45",
+                  borderRadius: "10px",
+                  padding: "12px 14px",
+                  color: "#EAF2FF",
+                  fontSize: "14px",
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          </div>
+
+          {error && (
+            <p
+              data-ocid="auth.error_state"
+              style={{
+                color: "#F87171",
+                fontSize: "13px",
+                marginTop: "12px",
+                textAlign: "center",
+              }}
+            >
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            data-ocid="auth.submit_button"
+            disabled={loading}
+            style={{
+              width: "100%",
+              marginTop: "20px",
+              padding: "13px",
+              background: loading
+                ? "rgba(37,99,235,0.4)"
+                : "linear-gradient(135deg,#2563EB,#06B6D4)",
+              border: "none",
+              borderRadius: "12px",
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: "15px",
+              cursor: loading ? "wait" : "pointer",
+              boxShadow: loading ? "none" : "0 4px 16px rgba(37,99,235,0.4)",
+              transition: "all 0.2s",
+            }}
+          >
+            {loading
+              ? "Please wait…"
+              : mode === "login"
+                ? "Login"
+                : "Create Account"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Client Dashboard ─────────────────────────────────────────────────────────
+function ClientDashboard({
+  isOpen,
+  onClose,
+  currentUser,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  currentUser: ClientUser;
+}) {
+  const [activeTab, setActiveTab] = useState<
+    "bookings" | "orders" | "exclusive"
+  >("bookings");
+  const bookings = loadBookings().filter(
+    (b) =>
+      (b.clientEmail && b.clientEmail === currentUser.email) ||
+      b.email.toLowerCase() === currentUser.email.toLowerCase(),
+  );
+
+  const statusColors: Record<
+    BookingEntry["status"],
+    { bg: string; color: string; label: string }
+  > = {
+    pending: { bg: "#334155", color: "#94A3B8", label: "Pending" },
+    in_progress: { bg: "#78350F", color: "#FCD34D", label: "In Progress" },
+    done: { bg: "#14532D", color: "#86EFAC", label: "Done" },
+  };
+
+  const exclusiveContent = [
+    {
+      icon: "🎙️",
+      title: "How to Prepare for Your Session",
+      desc: "Walk in ready: finalize your lyrics, reference tracks, and know your key. Warm up your voice. The more prepared you are, the more you'll get out of studio time.",
+    },
+    {
+      icon: "📋",
+      title: "Music Release Checklist",
+      desc: "Before you drop: artwork (3000×3000px), distributor account, ISRC code, social media teasers, press kit, and release date booked at least 2 weeks ahead.",
+    },
+    {
+      icon: "🤝",
+      title: "Working with a Producer — What to Expect",
+      desc: "Come with references, be open to direction, and trust the process. Share your vision clearly. Great music is a conversation between artist and producer.",
+    },
+    {
+      icon: "📱",
+      title: "Social Media Strategy for New Artists",
+      desc: "Post 3–5x per week: behind-the-scenes, short clips, lyric graphics. Engage on Reels and Shorts. Build your audience before the drop, not after.",
+    },
+    {
+      icon: "🎬",
+      title: "Music Video Tips on a Budget",
+      desc: "A consistent color grade, clean lighting, and strong performance beat expensive equipment. Scout free locations. Plan every shot before the day.",
+    },
+  ];
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      data-ocid="dashboard.modal"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1500,
+        background: "rgba(2,6,23,0.9)",
+        backdropFilter: "blur(12px)",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          background: "#020617",
+          borderBottom: "1px solid #1F2E45",
+          padding: "16px 24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <span
+            style={{
+              fontSize: "18px",
+              fontWeight: 700,
+              background: "linear-gradient(135deg,#06B6D4,#2563EB)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            Emerging Artist
+          </span>
+          <span style={{ color: "#475569", fontSize: "13px" }}>
+            / My Dashboard
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <span style={{ color: "#94A3B8", fontSize: "13px" }}>
+            👤 {currentUser.name}
+          </span>
+          <button
+            type="button"
+            data-ocid="dashboard.close_button"
+            onClick={onClose}
+            aria-label="Close dashboard"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              color: "#94A3B8",
+              borderRadius: "8px",
+              width: "36px",
+              height: "36px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div
+        style={{
+          borderBottom: "1px solid #1F2E45",
+          padding: "0 24px",
+          display: "flex",
+          gap: "4px",
+          flexShrink: 0,
+          background: "#0F172A",
+        }}
+      >
+        {(
+          [
+            { id: "bookings", label: "📅 Booking History" },
+            { id: "orders", label: "📦 Order Status" },
+            { id: "exclusive", label: "🌟 Exclusive Content" },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            data-ocid={`dashboard.${tab.id}.tab`}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              padding: "14px 20px",
+              background: "transparent",
+              border: "none",
+              borderBottom:
+                activeTab === tab.id
+                  ? "2px solid #06B6D4"
+                  : "2px solid transparent",
+              color: activeTab === tab.id ? "#06B6D4" : "#64748B",
+              fontSize: "14px",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "all 0.2s",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+        {/* Booking History Tab */}
+        {activeTab === "bookings" && (
+          <div>
+            <h2
+              style={{
+                color: "#EAF2FF",
+                fontSize: "20px",
+                fontWeight: 700,
+                marginBottom: "20px",
+                margin: "0 0 20px",
+              }}
+            >
+              Your Bookings
+            </h2>
+            {bookings.length === 0 ? (
+              <div
+                data-ocid="dashboard.bookings.empty_state"
+                style={{
+                  textAlign: "center",
+                  padding: "60px 20px",
+                  color: "#64748B",
+                  background: "rgba(37,99,235,0.04)",
+                  border: "1px solid rgba(37,99,235,0.1)",
+                  borderRadius: "16px",
+                }}
+              >
+                <div style={{ fontSize: "40px", marginBottom: "12px" }}>📭</div>
+                <p style={{ fontSize: "16px", fontWeight: 500 }}>
+                  No bookings yet
+                </p>
+                <p style={{ fontSize: "13px", marginTop: "6px" }}>
+                  Submit a project request and it will appear here.
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                }}
+              >
+                {bookings.map((b, i) => (
+                  <div
+                    key={b.id}
+                    data-ocid={`dashboard.bookings.item.${i + 1}`}
+                    style={{
+                      background: "#1E293B",
+                      border: "1px solid #1F2E45",
+                      borderRadius: "14px",
+                      padding: "18px 20px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        flexWrap: "wrap",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          color: "#EAF2FF",
+                          fontSize: "15px",
+                        }}
+                      >
+                        {b.service}
+                      </span>
+                      <span
+                        style={{
+                          ...statusColors[b.status],
+                          padding: "2px 10px",
+                          borderRadius: "999px",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {statusColors[b.status].label}
+                      </span>
+                    </div>
+                    <p
+                      style={{
+                        color: "#94A3B8",
+                        fontSize: "13px",
+                        margin: "0 0 6px",
+                      }}
+                    >
+                      {b.description}
+                    </p>
+                    <div
+                      style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}
+                    >
+                      {b.budget && (
+                        <span style={{ color: "#64748B", fontSize: "12px" }}>
+                          💰 {b.budget}
+                        </span>
+                      )}
+                      {b.timeline && (
+                        <span style={{ color: "#64748B", fontSize: "12px" }}>
+                          📅 {b.timeline}
+                        </span>
+                      )}
+                      <span style={{ color: "#475569", fontSize: "12px" }}>
+                        🕐 {new Date(b.submittedAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Order Status Tab */}
+        {activeTab === "orders" && (
+          <div>
+            <h2
+              style={{
+                color: "#EAF2FF",
+                fontSize: "20px",
+                fontWeight: 700,
+                marginBottom: "20px",
+                margin: "0 0 20px",
+              }}
+            >
+              Order Status
+            </h2>
+            {bookings.length === 0 ? (
+              <div
+                data-ocid="dashboard.orders.empty_state"
+                style={{
+                  textAlign: "center",
+                  padding: "60px 20px",
+                  color: "#64748B",
+                  background: "rgba(37,99,235,0.04)",
+                  border: "1px solid rgba(37,99,235,0.1)",
+                  borderRadius: "16px",
+                }}
+              >
+                <div style={{ fontSize: "40px", marginBottom: "12px" }}>📦</div>
+                <p style={{ fontSize: "16px", fontWeight: 500 }}>
+                  No orders yet
+                </p>
+                <p style={{ fontSize: "13px", marginTop: "6px" }}>
+                  Your project orders will show up here.
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                }}
+              >
+                {bookings.map((b, i) => (
+                  <div
+                    key={b.id}
+                    data-ocid={`dashboard.orders.item.${i + 1}`}
+                    style={{
+                      background: "#1E293B",
+                      border: `1px solid ${b.status === "done" ? "rgba(134,239,172,0.2)" : b.status === "in_progress" ? "rgba(252,211,77,0.2)" : "#1F2E45"}`,
+                      borderRadius: "14px",
+                      padding: "18px 20px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "16px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "44px",
+                        height: "44px",
+                        borderRadius: "12px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "20px",
+                        background:
+                          b.status === "done"
+                            ? "rgba(134,239,172,0.1)"
+                            : b.status === "in_progress"
+                              ? "rgba(252,211,77,0.1)"
+                              : "rgba(37,99,235,0.1)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {b.status === "done"
+                        ? "✅"
+                        : b.status === "in_progress"
+                          ? "⚡"
+                          : "⏳"}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p
+                        style={{
+                          color: "#EAF2FF",
+                          fontWeight: 700,
+                          fontSize: "15px",
+                          margin: "0 0 4px",
+                        }}
+                      >
+                        {b.service}
+                      </p>
+                      <p
+                        style={{
+                          color: "#64748B",
+                          fontSize: "12px",
+                          margin: 0,
+                        }}
+                      >
+                        Submitted {new Date(b.submittedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <span
+                      style={{
+                        ...statusColors[b.status],
+                        padding: "4px 14px",
+                        borderRadius: "999px",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {statusColors[b.status].label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Exclusive Content Tab */}
+        {activeTab === "exclusive" && (
+          <div>
+            <h2
+              style={{
+                color: "#EAF2FF",
+                fontSize: "20px",
+                fontWeight: 700,
+                margin: "0 0 8px",
+              }}
+            >
+              Exclusive Resources
+            </h2>
+            <p
+              style={{ color: "#64748B", fontSize: "14px", margin: "0 0 24px" }}
+            >
+              Tips and guides from the Emerging Artist team — just for our
+              clients.
+            </p>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                gap: "16px",
+              }}
+            >
+              {exclusiveContent.map((item, i) => (
+                <div
+                  key={item.title}
+                  data-ocid={`dashboard.exclusive.item.${i + 1}`}
+                  style={{
+                    background:
+                      "linear-gradient(135deg, rgba(37,99,235,0.08) 0%, rgba(6,182,212,0.05) 100%)",
+                    border: "1px solid rgba(37,99,235,0.2)",
+                    borderRadius: "16px",
+                    padding: "20px",
+                  }}
+                >
+                  <div style={{ fontSize: "28px", marginBottom: "12px" }}>
+                    {item.icon}
+                  </div>
+                  <h3
+                    style={{
+                      color: "#EAF2FF",
+                      fontWeight: 700,
+                      fontSize: "15px",
+                      margin: "0 0 10px",
+                    }}
+                  >
+                    {item.title}
+                  </h3>
+                  <p
+                    style={{
+                      color: "#94A3B8",
+                      fontSize: "13px",
+                      lineHeight: "1.6",
+                      margin: 0,
+                    }}
+                  >
+                    {item.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Footer ───────────────────────────────────────────────────────────────────
 function Footer({ onAdminClick }: { onAdminClick: () => void }) {
   const year = new Date().getFullYear();
@@ -1699,27 +3022,374 @@ function Footer({ onAdminClick }: { onAdminClick: () => void }) {
   );
 }
 
-// ─── Floating WhatsApp ────────────────────────────────────────────────────────
-function FloatingWhatsApp() {
+// ─── Cart Panel ──────────────────────────────────────────────────────────────
+function CartPanel({
+  cartItems,
+  isOpen,
+  onClose,
+  onRemove,
+}: {
+  cartItems: CartItem[];
+  isOpen: boolean;
+  onClose: () => void;
+  onRemove: (id: string) => void;
+}) {
+  const handleCheckout = () => {
+    if (cartItems.length === 0) return;
+    cartItems.forEach((item, i) => {
+      setTimeout(() => {
+        window.open(item.gumroadUrl, "_blank", "noopener,noreferrer");
+      }, i * 600);
+    });
+  };
+
   return (
-    <a
-      href={WA_LINK}
-      target="_blank"
-      rel="noopener noreferrer"
-      data-ocid="wa.float.button"
-      className="wa-float"
-    >
-      <span className="sr-only">Chat on WhatsApp</span>
-      <svg
-        aria-hidden="true"
-        width="28"
-        height="28"
-        fill="white"
-        viewBox="0 0 24 24"
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        onKeyDown={(e) => e.key === "Escape" && onClose()}
+        role="button"
+        tabIndex={-1}
+        aria-label="Close cart"
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.6)",
+          zIndex: 1100,
+          opacity: isOpen ? 1 : 0,
+          pointerEvents: isOpen ? "auto" : "none",
+          transition: "opacity 0.3s ease",
+        }}
+      />
+      {/* Panel */}
+      <div
+        data-ocid="cart.panel"
+        style={{
+          position: "fixed",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "min(380px, 100vw)",
+          zIndex: 1101,
+          background: "#0F172A",
+          borderLeft: "1px solid rgba(37,99,235,0.25)",
+          boxShadow: "-8px 0 40px rgba(0,0,0,0.6)",
+          transform: isOpen ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.35s cubic-bezier(0.4,0,0.2,1)",
+          display: "flex",
+          flexDirection: "column",
+        }}
       >
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "20px 24px",
+            borderBottom: "1px solid rgba(37,99,235,0.2)",
+          }}
+        >
+          <h2
+            style={{
+              color: "#EAF2FF",
+              fontSize: "18px",
+              fontWeight: 700,
+              margin: 0,
+            }}
+          >
+            Your Cart
+            {cartItems.length > 0 && (
+              <span
+                style={{
+                  marginLeft: "10px",
+                  fontSize: "13px",
+                  color: "#06B6D4",
+                  fontWeight: 500,
+                }}
+              >
+                ({cartItems.length} {cartItems.length === 1 ? "item" : "items"})
+              </span>
+            )}
+          </h2>
+          <button
+            type="button"
+            data-ocid="cart.close_button"
+            onClick={onClose}
+            aria-label="Close cart"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              color: "#94A3B8",
+              borderRadius: "8px",
+              width: "36px",
+              height: "36px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Items */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+          {cartItems.length === 0 ? (
+            <div
+              data-ocid="cart.empty_state"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "100%",
+                gap: "12px",
+                color: "#64748B",
+              }}
+            >
+              <svg
+                width="48"
+                height="48"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                aria-hidden="true"
+              >
+                <path d="M6 2 3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <path d="M16 10a4 4 0 01-8 0" />
+              </svg>
+              <p style={{ fontSize: "15px", fontWeight: 500 }}>
+                Your cart is empty
+              </p>
+              <p style={{ fontSize: "13px", textAlign: "center" }}>
+                Browse the store and add beats or sample packs.
+              </p>
+            </div>
+          ) : (
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+            >
+              {cartItems.map((item, i) => (
+                <div
+                  key={item.id}
+                  data-ocid={`cart.item.${i + 1}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "14px 16px",
+                    background: "rgba(37,99,235,0.08)",
+                    border: "1px solid rgba(37,99,235,0.15)",
+                    borderRadius: "12px",
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p
+                      style={{
+                        color: "#EAF2FF",
+                        fontSize: "14px",
+                        fontWeight: 600,
+                        margin: "0 0 4px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.title}
+                    </p>
+                    <p
+                      style={{
+                        color: "#06B6D4",
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        margin: 0,
+                      }}
+                    >
+                      {item.price}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    data-ocid={`cart.delete_button.${i + 1}`}
+                    onClick={() => onRemove(item.id)}
+                    aria-label={`Remove ${item.title} from cart`}
+                    style={{
+                      background: "rgba(239,68,68,0.12)",
+                      border: "1px solid rgba(239,68,68,0.25)",
+                      color: "#F87171",
+                      borderRadius: "8px",
+                      width: "32px",
+                      height: "32px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      marginLeft: "12px",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6l-1 14H6L5 6" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                      <path d="M9 6V4h6v2" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            padding: "20px 24px",
+            borderTop: "1px solid rgba(37,99,235,0.2)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+          }}
+        >
+          <button
+            type="button"
+            data-ocid="cart.confirm_button"
+            onClick={handleCheckout}
+            disabled={cartItems.length === 0}
+            style={{
+              background:
+                cartItems.length === 0
+                  ? "rgba(100,116,139,0.3)"
+                  : "linear-gradient(135deg,#2563EB,#06B6D4)",
+              border: "none",
+              color: cartItems.length === 0 ? "#64748B" : "#fff",
+              borderRadius: "12px",
+              padding: "14px",
+              fontSize: "15px",
+              fontWeight: 700,
+              cursor: cartItems.length === 0 ? "not-allowed" : "pointer",
+              boxShadow:
+                cartItems.length > 0
+                  ? "0 4px 20px rgba(37,99,235,0.4)"
+                  : "none",
+              transition: "all 0.2s",
+            }}
+          >
+            {cartItems.length === 0
+              ? "Cart is Empty"
+              : `Checkout (${cartItems.length} item${cartItems.length > 1 ? "s" : ""})`}
+          </button>
+          {cartItems.length > 0 && (
+            <p
+              style={{
+                color: "#64748B",
+                fontSize: "11px",
+                textAlign: "center",
+                margin: 0,
+              }}
+            >
+              Each product will open in a separate tab via Gumroad
+            </p>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Floating Cart ────────────────────────────────────────────────────────────
+function FloatingCart({
+  cartCount,
+  onClick,
+}: {
+  cartCount: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-ocid="cart.open_modal_button"
+      onClick={onClick}
+      aria-label={`Open cart, ${cartCount} items`}
+      style={{
+        position: "fixed",
+        bottom: "24px",
+        right: "24px",
+        zIndex: 999,
+        width: "50px",
+        height: "50px",
+        borderRadius: "50%",
+        background: "linear-gradient(135deg,#1d4ed8,#0284c7)",
+        border: "2px solid rgba(37,99,235,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        boxShadow: "0 4px 20px rgba(37,99,235,0.45)",
+        transition: "transform 0.2s ease, box-shadow 0.2s ease",
+      }}
+    >
+      <svg
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="white"
+        strokeWidth="2"
+        aria-hidden="true"
+      >
+        <path d="M6 2 3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
+        <line x1="3" y1="6" x2="21" y2="6" />
+        <path d="M16 10a4 4 0 01-8 0" />
       </svg>
-    </a>
+      {cartCount > 0 && (
+        <span
+          style={{
+            position: "absolute",
+            top: "-4px",
+            right: "-4px",
+            background: "#06B6D4",
+            color: "#fff",
+            borderRadius: "50%",
+            width: "20px",
+            height: "20px",
+            fontSize: "11px",
+            fontWeight: 700,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: "2px solid #0F172A",
+          }}
+        >
+          {cartCount}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -1780,6 +3450,33 @@ function ScrollToTop() {
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [adminView, setAdminView] = useState(false);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<ClientUser | null>(
+    getCurrentUser,
+  );
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
+
+  const handleAddToCart = useCallback((item: CartItem) => {
+    setCartItems((prev) =>
+      prev.some((c) => c.id === item.id) ? prev : [...prev, item],
+    );
+  }, []);
+
+  const handleRemoveFromCart = useCallback((id: string) => {
+    setCartItems((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  const handleAuthSuccess = useCallback((user: ClientUser) => {
+    setCurrentUser(user);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    logoutUser();
+    setCurrentUser(null);
+    setDashboardOpen(false);
+  }, []);
 
   if (adminView) {
     return <AdminDashboard onExit={() => setAdminView(false)} />;
@@ -1790,17 +3487,43 @@ export default function App() {
       className="min-h-screen"
       style={{ background: "linear-gradient(180deg,#0F172A 0%,#020617 100%)" }}
     >
-      <Nav />
+      <Nav
+        currentUser={currentUser}
+        onLoginClick={() => setAuthModalOpen(true)}
+        onDashboardClick={() => setDashboardOpen(true)}
+        onLogout={handleLogout}
+      />
       <main>
         <Hero />
         <Services />
-        <Store />
-        <Booking />
+        <Store cartItems={cartItems} onAddToCart={handleAddToCart} />
+        <Booking currentUser={currentUser} />
         <Team />
       </main>
       <Footer onAdminClick={() => setAdminView(true)} />
-      <FloatingWhatsApp />
+      <CartPanel
+        cartItems={cartItems}
+        isOpen={cartOpen}
+        onClose={() => setCartOpen(false)}
+        onRemove={handleRemoveFromCart}
+      />
+      <FloatingCart
+        cartCount={cartItems.length}
+        onClick={() => setCartOpen(true)}
+      />
       <ScrollToTop />
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
+      {currentUser && (
+        <ClientDashboard
+          isOpen={dashboardOpen}
+          onClose={() => setDashboardOpen(false)}
+          currentUser={currentUser}
+        />
+      )}
     </div>
   );
 }
